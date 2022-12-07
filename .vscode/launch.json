@@ -1,0 +1,14 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "thingworx-vscode",
+            "request": "attach",
+            "name": "Attach to Thingworx",
+            "thingworxDomain": "localhost",
+            "thingworxPort": "8015",
+            "thingworxAppKey": "4dbe96fc-3678-40ca-b486-c64da76018dd",
+            "useSSL": false
+        }
+    ]
+}

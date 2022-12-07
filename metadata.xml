@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Entities>
+  <ExtensionPackages>
+    <ExtensionPackage name="" description="" vendor="" packageVersion="" minimumThingWorxVersion="6.0.0" buildNumber="">
+      <JarResources>
+        <FileResource type="JAR" file="BMProfilerJavaBridge.jar"/>
+      </JarResources>
+    </ExtensionPackage>
+  </ExtensionPackages>
+  <Resources>
+    <Resource className="com.bogdanmihaiciuc.profiler.BMProfilerJavaBridgeHelper" description="Allows the profiler to access certain java resources." name="BMProfilerJavaBridgeHelper">
+      <RunTimePermissions>
+        <Permissions resourceName="*">
+          <ServiceInvoke>
+            <Principal isPermitted="true" principalName="Administrators" type="Group"/>
+            <Principal isPermitted="true" principalName="Developers" type="Group"/>
+            <Principal isPermitted="true" principalName="Users" type="Group"/>
+          </ServiceInvoke>
+        </Permissions>
+      </RunTimePermissions>
+    </Resource>
+  </Resources>
+</Entities>
+    

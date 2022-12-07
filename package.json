@@ -1,0 +1,13 @@
+{
+    "name": "bm-profiler",
+    "version": "1.0.0",
+    "description": "An extension that allows gathering information on running profile builds created with the Thingworx VSCode Project",
+    "author": "Bogdan Mihaiciuc",
+    "scripts": {
+        "build": "twc build && scripts/build.mjs"
+    },
+    "devDependencies": {
+        "@types/node": "^8.10.52",
+        "bm-thing-cli": "^1.4.10"
+    }
+}
