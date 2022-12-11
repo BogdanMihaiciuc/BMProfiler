@@ -10,9 +10,9 @@ interface ChromeTraceEvent {
     name: string;
 
     /**
-     * The category of this event. Is always 'service' for the thingworx profiler.
+     * The category of this event, representing where the traced code is implemented.
      */
-    cat: 'service';
+    cat: string;
 
     /**
      * The kind of event:
