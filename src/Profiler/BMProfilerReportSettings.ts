@@ -13,6 +13,6 @@ class BMProfilerReportSettings extends DataShapeBase {
      * The path within the repository where profile reports should be saved.
      * This should not include a trailing slash
      */
-    path: STRING = '/ProfileReports';
+    path: STRING = 'ProfileReports';
 
 }
