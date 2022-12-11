@@ -59,4 +59,9 @@ interface BMProfilerMeasurement {
      */
     kind?: string;
 
+    /**
+     * When set to `true`, this measurement will delay its parent measurement, causing it to start when it ends.
+     */
+    delaysParent?: boolean;
+
 }

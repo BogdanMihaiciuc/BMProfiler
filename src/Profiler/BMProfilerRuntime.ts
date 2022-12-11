@@ -118,6 +118,7 @@ class BMProfilerRuntime {
             // Create the report events
             const traceEvents: ChromeTraceEvent[] = [];
             this._measurements.forEach(measurement => BMProfilerRuntime.createEventsForMeasurement(measurement, traceEvents));
+            traceEvents.sort((a, b) => a.ts - b.ts);
 
             const report = {
                 traceEvents,
@@ -161,12 +162,13 @@ class BMProfilerRuntime {
     /**
      * Creates the start and end trace events for the specified measurement and all its child measurements.
      * @param measurement       The measurement for which to create trace events.
-     * @param events 
+     * @param events            An array of events to which the newly created events will be added.
+     * @returns                 If this measurement delays its parent, this returns the end time of this event, otherwise `NaN`.
      */
-    static createEventsForMeasurement(measurement: BMProfilerMeasurement, events: ChromeTraceEvent[]) {
+    static createEventsForMeasurement(measurement: BMProfilerMeasurement, events: ChromeTraceEvent[]): number {
         // Create the begin event
-        events.push({
-            cat: 'service',
+        const beginEvent: ChromeTraceEvent = {
+            cat: measurement.kind || 'service',
             name: measurement.name,
             ph: 'B',
             ts: measurement.start,
@@ -177,14 +179,29 @@ class BMProfilerRuntime {
                 lineNumber: measurement.lineNumber
             },
             cname: this.eventColorMap[measurement.kind || 'unknown'],
-        });
+        };
+        events.push(beginEvent);
 
         // Create events for all sub-measurements
-        measurement.measurements.forEach(measurement => BMProfilerRuntime.createEventsForMeasurement(measurement, events));
+        const endTimes = measurement.measurements.map(measurement => BMProfilerRuntime.createEventsForMeasurement(measurement, events)).filter(t => !Number.isNaN(t));
+        const delayedStartTime = endTimes.length ? endTimes.reduce((a, v) => a > v ? a : v) : NaN;
+
+        if (measurement.name == 'toArray') {
+            logger.error(`toArray has delayedStartTime: ${delayedStartTime}, with children: ${measurement.measurements.map(m => `(${m.name} : ${m.delaysParent})`)}`);
+        }
+
+        // If any child event delays the parent event, update the start time accordingly
+        if (!isNaN(delayedStartTime)) {
+            // 10 ns are added to the delayed start time because chrome doesn't handle the events being out of order.
+            // As the resolution of the trace is in milliseconds, the inaccuracy shouldn't be too great
+            beginEvent.ts = delayedStartTime + 0.001;
+
+            // TODO: In the future, duration events ("X") might be a more appropriate way to handle this scenario
+        }
 
         // Create the end event
         events.push({
-            cat: 'service',
+            cat: measurement.kind || 'service',
             name: measurement.name,
             ph: 'E',
             ts: measurement.end || measurement.start,
@@ -196,6 +213,12 @@ class BMProfilerRuntime {
             },
             cname: this.eventColorMap[measurement.kind || 'unknown'],
         });
+
+        if (measurement.delaysParent) {
+            return measurement.end || Number.NaN;
+        }
+
+        return Number.NaN;
     }
 
     /**
@@ -284,13 +307,15 @@ class BMProfilerRuntime {
         this._retainCount -= 1;
 
         while (measurement) {
-            if (measurement.measurementBlock != block) break;
+            if (measurement.measurementBlock < block) break;
 
             // Close all active measurements within the block
             measurement.end = BMProfilerJavaBridge.snapshot();
 
             measurement = measurement.parentMeasurement;
         }
+
+        this._currentMeasurement = measurement;
 
         // If the parent measurement was also started implicitly, finish it implicitly
         if (measurement && measurement.implicit) {
@@ -304,8 +329,9 @@ class BMProfilerRuntime {
      * @param file          The file in which this the measured code is found.
      * @param lineNumber    The line number in the file at which the measured code is found.
      * @param kind          The kind of event.
+     * @param delaysParent  Whether this measurement causes the parent measurement to be delayed until this measurement ends.
      */
-    begin(name: string, file?: string, lineNumber?: number, kind?: string): void {
+    begin(name: string, file?: string, lineNumber?: number, kind?: string, delaysParent?: boolean): void {
         const parentMeasurement = this._currentMeasurement;
 
         // Create a new measurement
@@ -319,7 +345,12 @@ class BMProfilerRuntime {
             measurements: [],
             thread: this._threadNumber,
             implicit: 0,
-            kind
+            kind,
+            delaysParent
+        }
+
+        if (name == 'GetConfigurationTable') {
+            logger.error(`Starting measurement ${name} with delaysParent ${delaysParent}, arguments: [${[...arguments].join(', ')}]`);
         }
 
         // Add it to the parent measurement and mark it as the active one
@@ -341,13 +372,14 @@ class BMProfilerRuntime {
      * @param name          The name with which this measurement will be represented in the profiling report.
      * @param file          The file in which this the measured code is found.
      * @param lineNumber    The line number in the file at which the measured code is found.
+     * @param kind          The kind of event.
      */
-    beginImplicit(name: string, file?: string, lineNumber?: number): void {
+    beginImplicit(name: string, file?: string, lineNumber?: number, kind?: string): void {
         if (this._currentMeasurement) {
             this._currentMeasurement.implicit += 1;
         }
         else {
-            return this.begin(name, file, lineNumber);
+            return this.begin(name, file, lineNumber, kind);
         }
     }
 
