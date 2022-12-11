@@ -186,10 +186,6 @@ class BMProfilerRuntime {
         const endTimes = measurement.measurements.map(measurement => BMProfilerRuntime.createEventsForMeasurement(measurement, events)).filter(t => !Number.isNaN(t));
         const delayedStartTime = endTimes.length ? endTimes.reduce((a, v) => a > v ? a : v) : NaN;
 
-        if (measurement.name == 'toArray') {
-            logger.error(`toArray has delayedStartTime: ${delayedStartTime}, with children: ${measurement.measurements.map(m => `(${m.name} : ${m.delaysParent})`)}`);
-        }
-
         // If any child event delays the parent event, update the start time accordingly
         if (!isNaN(delayedStartTime)) {
             // 10 ns are added to the delayed start time because chrome doesn't handle the events being out of order.
@@ -347,10 +343,6 @@ class BMProfilerRuntime {
             implicit: 0,
             kind,
             delaysParent
-        }
-
-        if (name == 'GetConfigurationTable') {
-            logger.error(`Starting measurement ${name} with delaysParent ${delaysParent}, arguments: [${[...arguments].join(', ')}]`);
         }
 
         // Add it to the parent measurement and mark it as the active one
