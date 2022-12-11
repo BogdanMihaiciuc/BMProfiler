@@ -1,5 +1,5 @@
 /**
- * The profile is used to measure running code in order to identify performance bottlenecks.
+ * The profiler is used to measure running code in order to identify performance bottlenecks.
  * It acts as an API which can be used to start a profiling session, or end it and generate
  * a profiling report file.
  */
