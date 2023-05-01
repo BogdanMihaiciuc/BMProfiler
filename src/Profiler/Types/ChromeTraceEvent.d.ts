@@ -18,8 +18,11 @@ interface ChromeTraceEvent {
      * The kind of event:
      * * `'B'` represents a begin event.
      * * `'E'` represents an end event.
+     * * `'N'` represents a new event.
+     * * `'D'` represents a delete event.
+     * * `'O'` represents an update event.
      */
-    ph: 'B' | 'E';
+    ph: 'B' | 'E' | 'N' | 'D' | 'O';
 
     /**
      * The time, in microseconds, when this event occurred.
@@ -34,12 +37,17 @@ interface ChromeTraceEvent {
     /**
      * The thread ID of the thread in which the event occurred.
      */
-    tid: number;
+    tid: number | string;
+
+    /**
+     * For object events, this represents the ID of the object.
+     */
+    id?: string;
 
     /**
      * Arbitrary key-value data to be associated with this event.
      */
-    args: Record<string, any>;
+    args?: Record<string, any>;
 
     /**
      * The color with which to represent this event.

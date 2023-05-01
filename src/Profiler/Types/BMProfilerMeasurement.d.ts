@@ -47,7 +47,7 @@ interface BMProfilerMeasurement {
     /**
      * The number of the thread on which the measurement took place.
      */
-    thread: number;
+    thread: number | string;
 
     /**
      * Used to keep track of whether this measurement has also been started implicitly.
