@@ -118,17 +118,52 @@ class BMProfilerRuntime {
             // Create the report events
             const traceEvents: ChromeTraceEvent[] = [];
             this._measurements.forEach(measurement => BMProfilerRuntime.createEventsForMeasurement(measurement, traceEvents));
+
+            // Merge the recorded object lists
+            const objects: Record<string, BMProfilerObject> = {};
+            this._profilers.forEach(p => {
+                // Stop all further measurements on these profilers
+                p._cleared = true;
+
+                for (let key in p._objects) {
+                    var object = p._objects[key];
+
+                    var combinedObject = objects[key] ??= {
+                        name: object.name,
+                        id: object.id,
+                        category: object.category,
+                        snapshots: object.snapshots,
+                        thread: object.thread
+                    }
+
+                    // If this entry has the creation timestamp, it also has the category and thread
+                    if (object.created) {
+                        combinedObject.thread = object.thread;
+                        combinedObject.created = object.created;
+                        combinedObject.category = object.category;
+                    }
+
+                    if (object.destroyed) {
+                        combinedObject.destroyed = object.destroyed;
+                    }
+
+                    // Merge the state updates
+                    combinedObject.snapshots = combinedObject.snapshots.concat(object.snapshots);
+                }
+            });
+
+            Object.keys(objects).forEach(key => BMProfilerRuntime.createEventsForObject(objects[key], traceEvents));
+
             traceEvents.sort((a, b) => a.ts - b.ts);
 
             const report = {
                 traceEvents,
                 otherData: {
-                    version: 'BMProfiler v1.0'
+                    version: 'BMProfiler v1.1'
                 }
             };
 
             // Clear all existing profilers and measurements
-            this._profilers.forEach(p => p._cleared = true);
             this._profilers = [];
             this._measurements = [];
 
@@ -218,6 +253,63 @@ class BMProfilerRuntime {
     }
 
     /**
+     * Creates the new, delete and update trace events for the specified object and its snapshots.
+     * @param object        The object for which to generate trace events.
+     * @param events        An array of events to which the newly created events will be added.
+     */
+    static createEventsForObject(object: BMProfilerObject, events: ChromeTraceEvent[]): void {
+        const minTimestamp = events[0]?.ts || 0;
+
+        // Create the new event
+        events.push({
+            cat: object.category,
+            cname: 'unknown',
+            name: object.name,
+            id: object.name,
+            ph: 'N',
+            pid: 0,
+            tid: object.thread,
+            ts: object.created || minTimestamp
+        });
+
+        // Create an event for each snapshot
+        object.snapshots.forEach(snapshot => {
+            try {
+                const sanitizedSnapshot = JSON.parse(JSON.stringify(snapshot.state));
+    
+                events.push({
+                    cat: object.category,
+                    cname: 'unknown',
+                    name: object.name,
+                    id: object.name,
+                    ph: 'O',
+                    pid: 0,
+                    tid: object.thread,
+                    ts: snapshot.timestamp,
+                    args: {
+                        snapshot: sanitizedSnapshot
+                    }
+                });
+            }
+            catch (e) {
+                // Exclude non-serializable snapshots
+            }
+        });
+
+        // Create the destroyed event
+        events.push({
+            cat: object.category,
+            cname: 'unknown',
+            name: object.name,
+            id: object.name,
+            ph: 'D',
+            pid: 0,
+            tid: object.thread,
+            ts: object.destroyed || BMProfilerJavaBridge.snapshot()
+        });
+    }
+
+    /**
      * Represents the instance of the profiler that is associated with the current thread.
      * If a profiler wasn't yet created for this thread, accessing this property will create one.
      */
@@ -250,12 +342,15 @@ class BMProfilerRuntime {
      */
     private _threadNumber: number;
 
+    private _objects: Record<string, BMProfilerObject> = {};
+
     /**
      * Initializes this profiler runtime.
      */
     init(): BMProfilerRuntime {
         this._threadNumber = BMProfilerJavaBridge.threadNumber();
         this._retainCount = 0;
+        this._objects = {};
         return this;
     }
 
@@ -314,9 +409,9 @@ class BMProfilerRuntime {
         this._currentMeasurement = measurement;
 
         // If the parent measurement was also started implicitly, finish it implicitly
-        if (measurement && measurement.implicit) {
-            measurement.implicit--;
-        }
+        // if (measurement && measurement.implicit) {
+        //     measurement.implicit--;
+        // }
     }
 
     /**
@@ -356,7 +451,7 @@ class BMProfilerRuntime {
     }
 
     /**
-     * Starts a new measurements and sets it as the active one for the current block, if no measurement
+     * Starts a new measurement and sets it as the active one for the current block, if no measurement
      * is currently active, otherwise continues to use the current measurement.
      * 
      * This method is reserved for use by trace builds created with thing transformer and should not be used
@@ -376,18 +471,57 @@ class BMProfilerRuntime {
     }
 
     /**
-     * Closes the current measurement.
+     * Starts a new synthetic measurement and sets it as the active one for the current block.
+     * 
+     * Reserved for internal use.
+     * @param name          The name with which this measurement will be represented in the profiling report.
+     * @param kind          Defaults to `"unknown"`. The kind of event.
+     * @param thread        Defaults to the current thread. The thread on which this measurement will appear.
      */
-    finish(): void {
-        const measurement = this._currentMeasurement!;
+    protected _beginSynthetic(name: string, kind?: string, thread?: string): void {
+        const parentMeasurement = this._currentMeasurement;
 
-        measurement.end = BMProfilerJavaBridge.snapshot();
+        // Create a new measurement
+        const measurement: BMProfilerMeasurement = {
+            name,
+            file: undefined,
+            lineNumber: undefined,
+            measurementBlock: this._retainCount,
+            parentMeasurement,
+            start: BMProfilerJavaBridge.snapshot(),
+            measurements: [],
+            thread: thread || this._threadNumber,
+            implicit: 0,
+            kind: kind || 'unknown',
+            delaysParent: false
+        }
 
-        this._currentMeasurement = measurement.parentMeasurement;
+        // Add it to the parent measurement and mark it as the active one
+        parentMeasurement?.measurements.push(measurement);
+        this._currentMeasurement = measurement;
+
+        // If this is a root measurement, add it to the global measurements
+        if (!parentMeasurement) {
+            BMProfilerRuntime._addMeasurement(measurement);
+        }
     }
 
     /**
-     * Continues the current measurement if it was started implicitly, otherwise closes the current measurement.
+     * Closes the current measurement.
+     */
+    finish(): void {
+        const measurement = this._currentMeasurement;
+
+        if (measurement) {
+            measurement.end = BMProfilerJavaBridge.snapshot();
+    
+            this._currentMeasurement = measurement.parentMeasurement;
+        }
+    
+    }
+
+    /**
+     * Continues the current measurement if it was started implicitly.
      * 
      * This method is reserved for use by trace builds created with thing transformer and should not be used
      * in developer-defined trace blocks.
@@ -396,9 +530,63 @@ class BMProfilerRuntime {
         if (this._currentMeasurement?.implicit) {
             this._currentMeasurement.implicit -= 1;
         }
-        else {
-            return this.finish();
+    }
+
+    /**
+     * Registers an object creation event. This object's state can then be tracked using
+     * the `updateObject` method.
+     * @param name      The name of the object that will be tracked.
+     * @param category  An optional category that will be used to color-code this event.
+     * @param thread    An optional virtual thread in which to track this object. If not specified,
+     *                  it will be tracked in the current thread.
+     */
+    createObject(name: string, category?: string, thread?: string): void {
+        this._objects[name] = {
+            name,
+            id: name,
+            category: category ?? 'object',
+            snapshots: [],
+            thread: thread ?? this._threadNumber.toFixed(),
+            created: BMProfilerJavaBridge.snapshot()
         }
+    }
+
+    /**
+     * Registers an object destruction event. For objects that haven't yet been destroyed when the
+     * profiling session has ended, an event of this kind will be automatically generated at the end of the session.
+     * 
+     * This method may be called from a different thread than the thread where this object was created.
+     * @param name      The name of the object being destroyed.
+     */
+    destroyObject(name: string): void {
+        this._objects[name] ??= {
+            name,
+            id: name,
+            category: 'object',
+            snapshots: [],
+            thread: this._threadNumber.toFixed(),
+        }
+
+        this._objects[name].destroyed = BMProfilerJavaBridge.snapshot();
+    }
+
+    /**
+     * Registers a state change event for the specified object.
+     * 
+     * This method may be called from a different thread than the thread where this object was created.
+     * @param name      The name of the object whose state was updated.
+     * @param state     The object's new state. This object should be serializable.
+     */
+    updateObject(name: string, state: unknown) {
+        this._objects[name] ??= {
+            name,
+            id: name,
+            category: 'object',
+            snapshots: [],
+            thread: this._threadNumber.toFixed(),
+        }
+
+        this._objects[name].snapshots.push({state: state, timestamp: BMProfilerJavaBridge.snapshot()})
     }
 
     /**
@@ -425,4 +613,8 @@ class BMInactiveProfilerRuntime extends BMProfilerRuntime {
     override finishImplicit() {}
     override init() { return this; }
     override stop() {}
+    override createObject() {}
+    override destroyObject() {}
+    override updateObject() {}
+    protected override _beginSynthetic() {}
 }
