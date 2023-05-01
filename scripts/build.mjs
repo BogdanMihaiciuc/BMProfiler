@@ -10,7 +10,7 @@ process.stdout.write(`\x1b[2m❯\x1b[0m Compiling java project`);
 await new Promise(r => {
     spawn(
         'javac', 
-        ['./src/java/com/bogdanmihaiciuc/profiler/*.java', '-cp', './lib/\\*', '-d', './build/class'], 
+        ['./src/java/com/bogdanmihaiciuc/profiler/*.java', '--release', '11', '-cp', './lib/\\*', '-d', './build/class'], 
         {stdio: 'inherit', shell: true}
     ).on('close', r)
 });
